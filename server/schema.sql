@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS importes_referencia (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    anio INTEGER NOT NULL,
+    mes INTEGER NOT NULL,
+    importe DECIMAL(10,2) NOT NULL,
+    fecha_carga DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(anio, mes)
+); 
