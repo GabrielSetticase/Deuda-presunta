@@ -48,6 +48,8 @@ function App() {
     const [currentCUIT, setCurrentCUIT] = useState('');
     const [processedCount, setProcessedCount] = useState(0);
     const [socket, setSocket] = useState(null);
+    const [cuitEspecifico, setCuitEspecifico] = useState('');
+    const [files, setFiles] = useState({ actas: null, cuiles: null });
 
     useEffect(() => {
         cargarImportes();
@@ -321,7 +323,7 @@ function App() {
     };
 
     const handleProcesar = async () => {
-        if (!selectedActas || !selectedCuiles) {
+        if (!files.actas || !files.cuiles) {
             setMessage('Por favor seleccione ambos archivos antes de procesar');
             return;
         }
@@ -335,12 +337,12 @@ function App() {
 
             // Primero, subir los archivos
             const actasFormData = new FormData();
-            const actasFile = document.getElementById('actas-upload').files[0];
-            actasFormData.append('file', actasFile);
+            actasFormData.append('file', files.actas);
+            actasFormData.append('fileType', 'actas');
 
             const cuilesFormData = new FormData();
-            const cuilesFile = document.getElementById('cuiles-upload').files[0];
-            cuilesFormData.append('file', cuilesFile);
+            cuilesFormData.append('file', files.cuiles);
+            cuilesFormData.append('fileType', 'cuiles');
 
             setProcessingStatus('Subiendo archivos...');
 
@@ -354,8 +356,8 @@ function App() {
 
             // Procesar los archivos
             const response = await axios.post('http://localhost:3001/api/procesar', {
-                actasPath: actasFile.name,
-                cuilesPath: cuilesFile.name
+                actasPath: files.actas.name,
+                cuilesPath: files.cuiles.name
             });
 
             console.log('Resultados recibidos:', response.data);
@@ -374,6 +376,14 @@ function App() {
         } finally {
             setIsProcessing(false);
             setProcessingStatus('');
+        }
+    };
+
+    const handleFileChange = (event, type) => {
+        const file = event.target.files[0];
+        if (file) {
+            setFiles({ ...files, [type]: file });
+            setMessage('');
         }
     };
 
@@ -469,44 +479,36 @@ function App() {
             <div className="section">
                 <h2>Procesar Base de Datos</h2>
                 <div className="file-upload-section">
-                    <button onClick={() => document.getElementById('actas-upload').click()} className="select-button">
-                        SELECCIONAR 1- ACTAS CORDOBA
-                    </button>
-                    {selectedActas && <div className="selected-file">1- {selectedActas}</div>}
-                    <input
-                        type="file"
-                        id="actas-upload"
-                        accept=".mdb,.odb"
-                        style={{ display: 'none' }}
-                        onChange={(e) => {
-                            const file = e.target.files[0];
-                            if (file) {
-                                setSelectedActas(file.name);
-                            }
-                        }}
-                    />
+                    <div className="file-input-container">
+                        <label className="file-input-label">
+                            <input
+                                type="file"
+                                accept=".mdb,.accdb"
+                                onChange={(e) => handleFileChange(e, 'actas')}
+                                className="file-input"
+                            />
+                            Seleccionar ACTAS
+                        </label>
+                        <span className="file-name">{files.actas ? files.actas.name : 'Ningún archivo seleccionado'}</span>
+                    </div>
 
-                    <button onClick={() => document.getElementById('cuiles-upload').click()} className="select-button">
-                        SELECCIONAR 5- CUILES CORDOBA
-                    </button>
-                    {selectedCuiles && <div className="selected-file">5- {selectedCuiles}</div>}
-                    <input
-                        type="file"
-                        id="cuiles-upload"
-                        accept=".mdb,.odb"
-                        style={{ display: 'none' }}
-                        onChange={(e) => {
-                            const file = e.target.files[0];
-                            if (file) {
-                                setSelectedCuiles(file.name);
-                            }
-                        }}
-                    />
+                    <div className="file-input-container">
+                        <label className="file-input-label">
+                            <input
+                                type="file"
+                                accept=".mdb,.accdb"
+                                onChange={(e) => handleFileChange(e, 'cuiles')}
+                                className="file-input"
+                            />
+                            Seleccionar CUILES
+                        </label>
+                        <span className="file-name">{files.cuiles ? files.cuiles.name : 'Ningún archivo seleccionado'}</span>
+                    </div>
 
                     <button
                         className="process-button"
                         onClick={handleProcesar}
-                        disabled={!selectedActas || !selectedCuiles}
+                        disabled={!files.actas || !files.cuiles}
                     >
                         {isProcessing ? 'PROCESANDO...' : 'PROCESAR ARCHIVOS'}
                     </button>

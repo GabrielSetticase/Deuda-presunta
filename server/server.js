@@ -236,10 +236,35 @@ app.delete('/api/importes-referencia/:id', async (req, res) => {
 });
 
 // Ruta para subir archivos
-app.post('/upload', upload.single('file'), (req, res) => {
+app.post('/upload', upload.single('file'), async (req, res) => {
     try {
-        res.json({ message: 'Archivo subido exitosamente' });
+        if (!req.file) {
+            return res.status(400).json({ error: 'No se ha subido ningún archivo' });
+        }
+
+        console.log('Archivo recibido:', req.file);
+        console.log('Tipo de archivo:', req.body.fileType);
+
+        const filePath = req.file.path;
+        const fileType = req.body.fileType;
+
+        // Verificar la extensión del archivo
+        const fileExtension = path.extname(filePath).toLowerCase();
+        if (fileType === 'actas' || fileType === 'cuiles') {
+            if (fileExtension !== '.mdb' && fileExtension !== '.accdb') {
+                await fs.unlink(filePath);
+                return res.status(400).json({ error: 'Formato de archivo no válido. Debe ser .mdb o .accdb' });
+            }
+        } else if (fileType === 'sueldos') {
+            if (fileExtension !== '.xlsx' && fileExtension !== '.xls') {
+                await fs.unlink(filePath);
+                return res.status(400).json({ error: 'Formato de archivo no válido. Debe ser .xlsx o .xls' });
+            }
+        }
+
+        res.json({ message: 'Archivo subido exitosamente', path: req.file.filename });
     } catch (error) {
+        console.error('Error al subir archivo:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -314,21 +339,33 @@ app.post('/api/procesar', async (req, res) => {
     }
 
     try {
+        console.log('Iniciando procesamiento con:', req.body);
         isProcessing = true;
         currentStatus = 'Iniciando procesamiento...';
         currentCUIT = '';
         processedCount = 0;
         const { actasPath, cuilesPath } = req.body;
 
+        if (!actasPath || !cuilesPath) {
+            throw new Error('Faltan los nombres de los archivos');
+        }
+
         // Construir rutas absolutas
         const actasFullPath = path.join(process.cwd(), 'uploads', actasPath);
         const cuilesFullPath = path.join(process.cwd(), 'uploads', cuilesPath);
+
+        console.log('Rutas completas:', {
+            actasFullPath,
+            cuilesFullPath
+        });
 
         // Verificar que los archivos existen
         try {
             await fs.access(actasFullPath);
             await fs.access(cuilesFullPath);
+            console.log('Archivos encontrados correctamente');
         } catch (error) {
+            console.error('Error al acceder a los archivos:', error);
             throw new Error(`No se pueden encontrar los archivos: ${error.message}`);
         }
 
@@ -336,8 +373,17 @@ app.post('/api/procesar', async (req, res) => {
         const actasExt = path.extname(actasPath).toLowerCase();
         const cuilesExt = path.extname(cuilesPath).toLowerCase();
 
-        if (!['.mdb', '.accdb', '.odb'].includes(actasExt) || !['.mdb', '.accdb', '.odb'].includes(cuilesExt)) {
-            throw new Error('Formato de archivo no soportado. Use .mdb, .accdb o .odb');
+        if (!['.mdb', '.accdb'].includes(actasExt) || !['.mdb', '.accdb'].includes(cuilesExt)) {
+            throw new Error('Formato de archivo no soportado. Use .mdb o .accdb');
+        }
+
+        // Obtener los importes de referencia desde la base de datos
+        const db = await getDatabase();
+        const importes = await db.all('SELECT * FROM importes_referencia');
+        console.log('Importes de referencia obtenidos:', importes.length);
+
+        if (importes.length === 0) {
+            throw new Error('No hay importes de referencia cargados. Por favor, cargue primero el archivo de sueldos.');
         }
 
         // Función para enviar actualizaciones de progreso
@@ -356,9 +402,10 @@ app.post('/api/procesar', async (req, res) => {
         };
 
         updateProgress('Iniciando procesamiento de archivos...');
-        console.log('Rutas de archivos:', { actasFullPath, cuilesFullPath });
+        console.log('Iniciando processODBFile con rutas:', { actasFullPath, cuilesFullPath });
 
-        const resultados = await processODBFile(cuilesFullPath, [], actasFullPath, updateProgress);
+        const resultados = await processODBFile(cuilesFullPath, importes, actasFullPath, updateProgress);
+        console.log('Procesamiento completado, resultados:', resultados);
 
         updateProgress('Procesamiento completado', null, null);
 

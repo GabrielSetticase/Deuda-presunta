@@ -102,107 +102,136 @@ export async function processODBFile(cuilesPath, importes, actasPath, updateProg
         let procesados = 0;
         const resultados = new Map();
 
-        while (true) {
-            const batchQuery = `
-                SELECT TOP ${BATCH_SIZE} *
+        // Definir los meses que vamos a procesar
+        const meses = [
+            'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+            'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
+        ];
+
+        // Obtener todos los registros de una vez
+        let query = `
+            SELECT CUIT, CUIL, ANIO, ${meses.map(mes =>
+            `REMUNERACION_${mes}, APORTE_${mes}, APORTE_ADIC_OS_${mes}`
+        ).join(', ')}
                 FROM ${tableName}
-                ORDER BY CUIT, CUIL, ANIO
-            `;
+            WHERE ANIO > 0
+            ORDER BY CUIT, CUIL, ANIO`;
 
-            const rows = await connection.query(batchQuery);
-            if (!rows || rows.length === 0) break;
+        console.log('Ejecutando consulta:', query);
+        const allRows = await connection.query(query);
+        console.log(`Total de registros encontrados: ${allRows.length}`);
 
-            for (const row of rows) {
-                const cuit = row.CUIT;
-                const cuil = row.CUIL;
-                const anio = parseInt(row.ANIO);
+        // Procesar cada registro
+        for (const row of allRows) {
+            const cuit = row.CUIT;
+            const cuil = row.CUIL;
+            const anio = parseInt(row.ANIO);
 
-                // Obtener el período desde el cual debemos procesar
-                let fechaInicio = ultimosPeriodos.get(cuit);
-                if (!fechaInicio) {
-                    console.log(`No se encontró período para CUIT ${cuit}, usando fecha de inicio por defecto (120 meses atrás)`);
-                    fechaInicio = fechaInicioDefault;
-                }
-
-                // Inicializar el registro de resultados para este CUIT si no existe
-                if (!resultados.has(cuit)) {
-                    resultados.set(cuit, {
-                        cuit,
-                        diferenciasDetalladas: new Map(),
-                        diferenciaTotal: 0,
-                        ultimoPeriodo: fechaInicio.toISOString()
-                    });
-                }
-
-                const registro = resultados.get(cuit);
-                const key = `${cuil}-${anio}`;
-
-                if (!registro.diferenciasDetalladas.has(key)) {
-                    registro.diferenciasDetalladas.set(key, 0);
-                }
-
-                // Procesar cada mes
-                const meses = [
-                    'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
-                    'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
-                ];
-
-                meses.forEach((mes, index) => {
-                    const fechaActual = new Date(anio, index, 1);
-                    // Solo procesar si la fecha es posterior al último período
-                    if (fechaActual < fechaInicio) {
-                        return;
-                    }
-
-                    const aporteColumn = `APORTE_${mes}`;
-                    const aporteAdicColumn = `APORTE_ADIC_OS_${mes}`;
-
-                    // Verificar si el campo existe y no está vacío
-                    const tieneAporte = row[aporteColumn] !== undefined &&
-                        row[aporteColumn] !== null &&
-                        row[aporteColumn] !== '' &&
-                        !isNaN(parseFloat(row[aporteColumn]));
-
-                    if (tieneAporte) {
-                        const aporte = parseFloat(row[aporteColumn] || 0);
-                        const aporteAdic = parseFloat(row[aporteAdicColumn] || 0);
-                        const aporteTotal = aporte + aporteAdic;
-
-                        const importeRef = importes.find(imp =>
-                            imp.anio === anio &&
-                            imp.mes === (index + 1)
-                        );
-
-                        if (importeRef && aporteTotal < importeRef.importe) {
-                            const diferencia = importeRef.importe - aporteTotal;
-                            const diferenciaActual = registro.diferenciasDetalladas.get(key);
-                            registro.diferenciasDetalladas.set(key, diferenciaActual + diferencia);
-                            registro.diferenciaTotal += diferencia;
-
-                            console.log(`Diferencia encontrada - CUIT: ${cuit}, CUIL: ${cuil}, Período: ${mes}/${anio}, Aporte: ${aporteTotal}, Referencia: ${importeRef.importe}, Diferencia: ${diferencia}`);
-                        }
-                    }
-                });
-
-                if (procesados % 100 === 0) {
-                    updateProgress(`Procesando registros... ${procesados}`, cuit, procesados);
-                }
-                procesados++;
+            // Obtener el período desde el cual debemos procesar
+            let fechaInicio = ultimosPeriodos.get(cuit);
+            if (!fechaInicio) {
+                console.log(`No se encontró período para CUIT ${cuit}, usando fecha de inicio por defecto (120 meses atrás)`);
+                fechaInicio = fechaInicioDefault;
             }
 
-            if (rows.length < BATCH_SIZE) break;
+            // Inicializar el registro de resultados para este CUIT si no existe
+            if (!resultados.has(cuit)) {
+                resultados.set(cuit, {
+                    cuit,
+                    diferenciasDetalladas: new Map(),
+                    diferenciaTotal: 0,
+                    ultimoPeriodo: fechaInicio.toISOString()
+                });
+            }
+
+            const registro = resultados.get(cuit);
+            const key = `${cuil}-${anio}`;
+            let diferenciaAnual = 0;
+
+            // Procesar cada mes
+            for (let index = 0; index < meses.length; index++) {
+                const mes = meses[index];
+                const fechaActual = new Date(anio, index, 1);
+
+                // Solo procesar si la fecha es posterior al último período
+                if (fechaActual < fechaInicio) {
+                    continue;
+                }
+
+                const remuneracionColumn = `REMUNERACION_${mes}`;
+                const aporteColumn = `APORTE_${mes}`;
+                const aporteAdicColumn = `APORTE_ADIC_OS_${mes}`;
+
+                // Verificar si existe remuneración para el mes
+                const tieneRemuneracion = row[remuneracionColumn] !== undefined &&
+                    row[remuneracionColumn] !== null &&
+                    row[remuneracionColumn] !== '' &&
+                    !isNaN(parseFloat(row[remuneracionColumn])) &&
+                    parseFloat(row[remuneracionColumn]) > 0;
+
+                // Solo procesar si hay remuneración y aporte informados (no vacíos)
+                const tieneAporte = row[aporteColumn] !== undefined &&
+                    row[aporteColumn] !== null &&
+                    row[aporteColumn] !== '' &&
+                    !isNaN(parseFloat(row[aporteColumn]));
+
+                // Solo procesar si hay remuneración válida y mayor a cero
+                if (tieneRemuneracion && tieneAporte) {
+                    console.log(`Procesando ${mes}/${anio} - Remuneración encontrada: ${row[remuneracionColumn]}`);
+                    const aporte = parseFloat(row[aporteColumn] || 0);
+                    const aporteAdic = parseFloat(row[aporteAdicColumn] || 0);
+                    const aporteTotal = aporte + aporteAdic;
+                    const remuneracion = parseFloat(row[remuneracionColumn]);
+
+                    const importeRef = importes.find(imp =>
+                        imp.anio === anio &&
+                        imp.mes === (index + 1)
+                    );
+
+                    if (importeRef) {
+                        const importeReferencia = parseFloat(importeRef.remuneracion) * 0.0255 + parseFloat(importeRef.apExtraordinario || 85);
+
+                        console.log(`\nAnalizando - CUIT: ${cuit}, CUIL: ${cuil}, Período: ${mes}/${anio}`);
+                        console.log(`Remuneración informada: ${remuneracion.toFixed(2)}`);
+                        console.log(`Aporte Total: ${aporteTotal.toFixed(2)} (Aporte: ${aporte.toFixed(2)}, Adic: ${aporteAdic.toFixed(2)})`);
+                        console.log(`Importe Referencia: ${importeReferencia.toFixed(2)} (Base: ${importeRef.remuneracion}, Extra: ${importeRef.apExtraordinario})`);
+
+                        if (aporteTotal < importeReferencia) {
+                            const diferencia = importeReferencia - aporteTotal;
+                            diferenciaAnual += diferencia;
+                            console.log(`Diferencia encontrada: ${diferencia.toFixed(2)}`);
+                            console.log(`Diferencia acumulada en el año: ${diferenciaAnual.toFixed(2)}`);
+                        } else {
+                            console.log('No hay diferencia a cobrar - El aporte es mayor o igual al importe de referencia');
+                        }
+                    }
+                } else {
+                    console.log(`No hay remuneración informada para CUIL ${cuil} en ${mes}/${anio}, se omite el cálculo`);
+                }
+            }
+
+            // Solo actualizamos el registro si hay diferencia positiva en el año
+            if (diferenciaAnual > 0) {
+                registro.diferenciasDetalladas.set(key, diferenciaAnual);
+                registro.diferenciaTotal += diferenciaAnual;
+                console.log(`\nDiferencia total para CUIL ${cuil} en ${anio}: ${diferenciaAnual.toFixed(2)}`);
+                console.log(`Diferencia total acumulada para CUIT ${cuit}: ${registro.diferenciaTotal.toFixed(2)}\n`);
+            }
+
+            procesados++;
+            if (procesados % 100 === 0) {
+                updateProgress(`Procesando registros... ${procesados}`, cuit, procesados);
+            }
         }
 
         await connection.close();
 
-        // Convertir resultados a formato final
+        // Limpiar y convertir resultados
         const resultadosFinales = Array.from(resultados.values())
-            .filter(r => r.diferenciaTotal > 0) // Solo incluir CUITs con diferencias
-            .map(registro => ({
-                cuit: registro.cuit,
-                ultimoPeriodo: registro.ultimoPeriodo,
-                diferenciasDetalladas: Array.from(registro.diferenciasDetalladas.entries())
-                    .filter(([_, diferencia]) => diferencia > 0) // Solo incluir detalles con diferencias
+            .map(registro => {
+                // Filtrar las diferencias detalladas para mantener solo las positivas
+                const diferenciasPositivas = Array.from(registro.diferenciasDetalladas.entries())
+                    .filter(([_, diferencia]) => diferencia > 0)
                     .map(([key, diferencia]) => {
                         const [cuil, anio] = key.split('-');
                         return {
@@ -210,9 +239,19 @@ export async function processODBFile(cuilesPath, importes, actasPath, updateProg
                             anio: parseInt(anio),
                             diferencia
                         };
-                    }),
-                diferenciaTotal: registro.diferenciaTotal
-            }));
+                    });
+
+                // Recalcular la diferencia total
+                const diferenciaTotal = diferenciasPositivas.reduce((sum, det) => sum + det.diferencia, 0);
+
+                return {
+                    cuit: registro.cuit,
+                    primerPeriodoAVerificar: registro.ultimoPeriodo,
+                    diferenciasDetalladas: diferenciasPositivas,
+                    diferenciaTotal
+                };
+            })
+            .filter(r => r.diferenciasDetalladas.length > 0 && r.diferenciaTotal > 0);
 
         console.log('Procesamiento completado');
         updateProgress(`Procesamiento completado. Total: ${procesados} registros procesados`);
@@ -222,6 +261,33 @@ export async function processODBFile(cuilesPath, importes, actasPath, updateProg
         console.error('Error en processODBFile:', error);
         updateProgress(`Error: ${error.message}`);
         throw error;
+    }
+}
+
+function getFileType(filePath) {
+    const extension = path.extname(filePath).toLowerCase();
+    switch (extension) {
+        case '.mdb':
+            return 'access';
+        case '.accdb':
+            return 'access';
+        case '.odb':
+            return 'openoffice';
+        default:
+            throw new Error(`Tipo de archivo no soportado: ${extension}`);
+    }
+}
+
+async function getConnection(filePath, fileType) {
+    if (fileType === 'access') {
+        const connectionString = `Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=${filePath}`;
+        return await odbc.connect(connectionString);
+    } else if (fileType === 'openoffice') {
+        // Para bases de datos OpenOffice
+        const connectionString = `Driver={LibreOffice Base Driver};DBQ=${filePath}`;
+        return await odbc.connect(connectionString);
+    } else {
+        throw new Error(`Tipo de conexión no soportado: ${fileType}`);
     }
 }
 
@@ -274,4 +340,4 @@ export async function processSueldosODB(filePath) {
         console.error('Error en processSueldosODB:', error);
         throw error;
     }
-} 
+}
