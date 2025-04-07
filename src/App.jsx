@@ -25,6 +25,7 @@ import {
 import axios from 'axios';
 import './styles.css';
 import io from 'socket.io-client';
+import * as XLSX from 'xlsx';
 
 function App() {
     const [importes, setImportes] = useState([]);
@@ -620,6 +621,61 @@ function App() {
             {resultados && resultados.length > 0 && (
                 <div className="resultados">
                     <h2>Resultados del Procesamiento</h2>
+                    <div className="resultados-actions">
+                        <button
+                            className="action-button print-button"
+                            onClick={() => {
+                                const printContent = document.createElement('div');
+                                printContent.innerHTML = `
+                                    <h2>Resultados del Procesamiento de Deuda Presunta</h2>
+                                    <table border="1" style="border-collapse: collapse; width: 100%;">
+                                        <thead>
+                                            <tr>
+                                                <th>CUIT</th>
+                                                <th>Último Período</th>
+                                                <th>Deuda Total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${resultados.map(resultado => `
+                                                <tr>
+                                                    <td>${resultado.cuit}</td>
+                                                    <td>${resultado.primerPeriodoAVerificar ? new Date(resultado.primerPeriodoAVerificar).toLocaleDateString('es-AR') : 'No disponible'}</td>
+                                                    <td>$${resultado.diferenciaTotal.toFixed(2)}</td>
+                                                </tr>
+                                            `).join('')}
+                                        </tbody>
+                                    </table>
+                                `;
+                                const printWindow = window.open('', '_blank');
+                                printWindow.document.write('<html><head><title>Deuda Presunta - Resultados</title>');
+                                printWindow.document.write('<style>body { font-family: Arial, sans-serif; } table { width: 100%; border-collapse: collapse; } th, td { padding: 8px; border: 1px solid #ddd; text-align: left; }</style>');
+                                printWindow.document.write('</head><body>');
+                                printWindow.document.write(printContent.innerHTML);
+                                printWindow.document.write('</body></html>');
+                                printWindow.document.close();
+                                printWindow.print();
+                            }}
+                        >
+                            🖨️ Imprimir Resultados
+                        </button>
+                        <button
+                            className="action-button export-button"
+                            onClick={() => {
+                                const wb = XLSX.utils.book_new();
+                                const data = resultados.map(resultado => ({
+                                    CUIT: resultado.cuit,
+                                    'Último Período': resultado.primerPeriodoAVerificar ? new Date(resultado.primerPeriodoAVerificar).toLocaleDateString('es-AR') : 'No disponible',
+                                    'Deuda Total': resultado.diferenciaTotal.toFixed(2)
+                                }));
+                                const ws = XLSX.utils.json_to_sheet(data);
+                                XLSX.utils.book_append_sheet(wb, ws, 'Resultados');
+                                XLSX.writeFile(wb, 'deuda_presunta_resultados.xlsx');
+                            }}
+                        >
+                            📊 Exportar a Excel
+                        </button>
+                    </div>
                     <table>
                         <thead>
                             <tr>
@@ -633,7 +689,7 @@ function App() {
                             {resultados.map((resultado, index) => (
                                 <tr key={index}>
                                     <td>{resultado.cuit}</td>
-                                    <td>{new Date(resultado.ultimoPeriodo).toLocaleDateString()}</td>
+                                    <td>{resultado.primerPeriodoAVerificar ? new Date(resultado.primerPeriodoAVerificar).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'No disponible'}</td>
                                     <td>${resultado.diferenciaTotal.toFixed(2)}</td>
                                     <td>
                                         <details>
@@ -668,4 +724,4 @@ function App() {
     );
 }
 
-export default App; 
+export default App;
