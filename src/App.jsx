@@ -50,7 +50,7 @@ function App() {
     const [processedCount, setProcessedCount] = useState(0);
     const [socket, setSocket] = useState(null);
     const [cuitEspecifico, setCuitEspecifico] = useState('');
-    const [files, setFiles] = useState({ actas: null, cuiles: null });
+    const [files, setFiles] = useState({ actas: null, cuiles: null, empresas: null });
 
     useEffect(() => {
         cargarImportes();
@@ -324,8 +324,8 @@ function App() {
     };
 
     const handleProcesar = async () => {
-        if (!files.actas || !files.cuiles) {
-            setMessage('Por favor seleccione ambos archivos antes de procesar');
+        if (!files.actas || !files.cuiles || !files.empresas) {
+            setMessage('Por favor seleccione todos los archivos (ACTAS, CUILES y EMPRESAS) antes de procesar');
             return;
         }
 
@@ -336,7 +336,7 @@ function App() {
             setCurrentCUIT('');
             setProcessedCount(0);
 
-            // Primero, subir los archivos
+            // Preparar FormData para todos los archivos
             const actasFormData = new FormData();
             actasFormData.append('file', files.actas);
             actasFormData.append('fileType', 'actas');
@@ -345,12 +345,17 @@ function App() {
             cuilesFormData.append('file', files.cuiles);
             cuilesFormData.append('fileType', 'cuiles');
 
+            const empresasFormData = new FormData();
+            empresasFormData.append('file', files.empresas);
+            empresasFormData.append('fileType', 'empresas');
+
             setProcessingStatus('Subiendo archivos...');
 
-            // Subir ambos archivos
+            // Subir todos los archivos
             await Promise.all([
                 axios.post('http://localhost:3001/upload', actasFormData),
-                axios.post('http://localhost:3001/upload', cuilesFormData)
+                axios.post('http://localhost:3001/upload', cuilesFormData),
+                axios.post('http://localhost:3001/upload', empresasFormData)
             ]);
 
             setProcessingStatus('Iniciando procesamiento...');
@@ -358,7 +363,8 @@ function App() {
             // Procesar los archivos
             const response = await axios.post('http://localhost:3001/api/procesar', {
                 actasPath: files.actas.name,
-                cuilesPath: files.cuiles.name
+                cuilesPath: files.cuiles.name,
+                empresasPath: files.empresas.name
             });
 
             console.log('Resultados recibidos:', response.data);
@@ -506,6 +512,19 @@ function App() {
                         <span className="file-name">{files.cuiles ? files.cuiles.name : 'Ningún archivo seleccionado'}</span>
                     </div>
 
+                    <div className="file-input-container">
+                        <label className="file-input-label">
+                            <input
+                                type="file"
+                                accept=".mdb,.accdb"
+                                onChange={(e) => handleFileChange(e, 'empresas')}
+                                className="file-input"
+                            />
+                            Seleccionar EMPRESAS
+                        </label>
+                        <span className="file-name">{files.empresas ? files.empresas.name : 'Ningún archivo seleccionado'}</span>
+                    </div>
+
                     <button
                         className="process-button"
                         onClick={handleProcesar}
@@ -625,6 +644,24 @@ function App() {
                         <button
                             className="action-button print-button"
                             onClick={() => {
+                                const resultadosOrdenados = [...resultados].sort((a, b) => {
+                                    const localidadComparison = (a.localidad || '').localeCompare(b.localidad || '');
+                                    if (localidadComparison === 0) {
+                                        return b.diferenciaTotal - a.diferenciaTotal;
+                                    }
+                                    return localidadComparison;
+                                });
+
+                                const subtotalesPorLocalidad = resultadosOrdenados.reduce((acc, curr) => {
+                                    const localidad = curr.localidad || 'No disponible';
+                                    if (!acc[localidad]) {
+                                        acc[localidad] = 0;
+                                    }
+                                    acc[localidad] += curr.diferenciaTotal;
+                                    return acc;
+                                }, {});
+
+                                let currentLocalidad = '';
                                 const printContent = document.createElement('div');
                                 printContent.innerHTML = `
                                     <h2>Resultados del Procesamiento de Deuda Presunta</h2>
@@ -632,18 +669,48 @@ function App() {
                                         <thead>
                                             <tr>
                                                 <th>CUIT</th>
-                                                <th>Último Período</th>
+                                                <th>Razón Social</th>
+                                                <th>Calle</th>
+                                                <th>Número</th>
+                                                <th>Localidad</th>
+                                                <th>Último N° Acta</th>
+                                                <th>Primer Período Verificado</th>
                                                 <th>Deuda Total</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            ${resultados.map(resultado => `
+                                            ${resultadosOrdenados.map((resultado, index) => {
+                                                const localidad = resultado.localidad || 'No disponible';
+                                                let subtotalRow = '';
+                                                if (localidad !== currentLocalidad) {
+                                                    if (currentLocalidad !== '') {
+                                                        subtotalRow = `<tr style="background-color: #f0f0f0;">
+                                                            <td colspan="7"><strong>Subtotal ${currentLocalidad}</strong></td>
+                                                            <td><strong>$${subtotalesPorLocalidad[currentLocalidad].toFixed(2)}</strong></td>
+                                                        </tr>`;
+                                                    }
+                                                    currentLocalidad = localidad;
+                                                }
+                                                return `${subtotalRow}
                                                 <tr>
                                                     <td>${resultado.cuit}</td>
+                                                    <td>${resultado.razonSocial || 'No disponible'}</td>
+                                                    <td>${resultado.calle || 'No disponible'}</td>
+                                                    <td>${resultado.numero || 'No disponible'}</td>
+                                                    <td>${resultado.localidad || 'No disponible'}</td>
+                                                    <td>${resultado.ultimoNroActa || 'No disponible'}</td>
                                                     <td>${resultado.primerPeriodoAVerificar ? new Date(resultado.primerPeriodoAVerificar).toLocaleDateString('es-AR') : 'No disponible'}</td>
                                                     <td>$${resultado.diferenciaTotal.toFixed(2)}</td>
-                                                </tr>
-                                            `).join('')}
+                                                </tr>`;
+                                            }).join('')}
+                                            <tr style="background-color: #f0f0f0;">
+                                                <td colspan="7"><strong>Subtotal ${currentLocalidad}</strong></td>
+                                                <td><strong>$${subtotalesPorLocalidad[currentLocalidad].toFixed(2)}</strong></td>
+                                            </tr>
+                                            <tr style="background-color: #e0e0e0;">
+                                                <td colspan="7"><strong>TOTAL GENERAL</strong></td>
+                                                <td><strong>$${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b, 0).toFixed(2)}</strong></td>
+                                            </tr>
                                         </tbody>
                                     </table>
                                 `;
@@ -655,70 +722,184 @@ function App() {
                                 printWindow.document.write('</body></html>');
                                 printWindow.document.close();
                                 printWindow.print();
-                            }}
-                        >
-                            🖨️ Imprimir Resultados
-                        </button>
-                        <button
-                            className="action-button export-button"
-                            onClick={() => {
+                            }}>
+                                🖨️ Imprimir Resultados
+                            </button>
+                            <button className="action-button export-button" onClick={() => {
+                                const resultadosOrdenados = [...resultados].sort((a, b) => {
+                                    const localidadComparison = (a.localidad || '').localeCompare(b.localidad || '');
+                                    if (localidadComparison === 0) {
+                                        return b.diferenciaTotal - a.diferenciaTotal;
+                                    }
+                                    return localidadComparison;
+                                });
+
+                                const subtotalesPorLocalidad = resultadosOrdenados.reduce((acc, curr) => {
+                                    const localidad = curr.localidad || 'No disponible';
+                                    if (!acc[localidad]) {
+                                        acc[localidad] = 0;
+                                    }
+                                    acc[localidad] += curr.diferenciaTotal;
+                                    return acc;
+                                }, {});
+
+                                const data = [];
+                                let currentLocalidad = '';
+
+                                resultadosOrdenados.forEach(resultado => {
+                                    const localidad = resultado.localidad || 'No disponible';
+                                    if (localidad !== currentLocalidad) {
+                                        if (currentLocalidad !== '') {
+                                            data.push({
+                                                'CUIT': '',
+                                                'Razón Social': `Subtotal ${currentLocalidad}`,
+                                                'Deuda Total': subtotalesPorLocalidad[currentLocalidad].toFixed(2)
+                                            });
+                                        }
+                                        currentLocalidad = localidad;
+                                    }
+
+                                    data.push({
+                                        'CUIT': resultado.cuit,
+                                        'Razón Social': resultado.razonSocial || 'No disponible',
+                                        'Calle': resultado.calle || 'No disponible',
+                                        'Número': resultado.numero || 'No disponible',
+                                        'Localidad': resultado.localidad || 'No disponible',
+                                        'Último N° Acta': resultado.ultimoNroActa || 'No disponible',
+                                        'Primer Período Verificado': resultado.primerPeriodoAVerificar ? new Date(resultado.primerPeriodoAVerificar).toLocaleDateString('es-AR') : 'No disponible',
+                                        'Deuda Total': resultado.diferenciaTotal.toFixed(2)
+                                    });
+                                });
+
+                                data.push({
+                                    'CUIT': '',
+                                    'Razón Social': `Subtotal ${currentLocalidad}`,
+                                    'Deuda Total': subtotalesPorLocalidad[currentLocalidad].toFixed(2)
+                                });
+
+                                data.push({
+                                    'CUIT': '',
+                                    'Razón Social': 'TOTAL GENERAL',
+                                    'Deuda Total': Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b, 0).toFixed(2)
+                                });
+
                                 const wb = XLSX.utils.book_new();
-                                const data = resultados.map(resultado => ({
-                                    CUIT: resultado.cuit,
-                                    'Último Período': resultado.primerPeriodoAVerificar ? new Date(resultado.primerPeriodoAVerificar).toLocaleDateString('es-AR') : 'No disponible',
-                                    'Deuda Total': resultado.diferenciaTotal.toFixed(2)
-                                }));
                                 const ws = XLSX.utils.json_to_sheet(data);
                                 XLSX.utils.book_append_sheet(wb, ws, 'Resultados');
                                 XLSX.writeFile(wb, 'deuda_presunta_resultados.xlsx');
-                            }}
-                        >
-                            📊 Exportar a Excel
-                        </button>
-                    </div>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>CUIT</th>
-                                <th>Último Período</th>
-                                <th>Deuda Total</th>
-                                <th>Detalle</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {resultados.map((resultado, index) => (
-                                <tr key={index}>
-                                    <td>{resultado.cuit}</td>
-                                    <td>{resultado.primerPeriodoAVerificar ? new Date(resultado.primerPeriodoAVerificar).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'No disponible'}</td>
-                                    <td>${resultado.diferenciaTotal.toFixed(2)}</td>
-                                    <td>
-                                        <details>
-                                            <summary>Ver detalle</summary>
-                                            <table className="detalle-table">
-                                                <thead>
-                                                    <tr>
-                                                        <th>CUIL</th>
-                                                        <th>Año</th>
-                                                        <th>Diferencia</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {resultado.diferenciasDetalladas.map((detalle, idx) => (
-                                                        <tr key={idx}>
-                                                            <td>{detalle.cuil}</td>
-                                                            <td>{detalle.anio}</td>
-                                                            <td>${detalle.diferencia.toFixed(2)}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </details>
-                                    </td>
+                            }}>
+                                📊 Exportar a Excel
+                            </button>
+                        </div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>CUIT</th>
+                                    <th>Razón Social</th>
+                                    <th>Calle</th>
+                                    <th>Número</th>
+                                    <th>Localidad</th>
+                                    <th>Último N° Acta</th>
+                                    <th>Primer Período Verificado</th>
+                                    <th>Deuda Total</th>
+                                    <th>Detalle</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                            </thead>
+                            <tbody>
+                                {(() => {
+                                    const resultadosOrdenados = [...resultados].sort((a, b) => {
+                                        const localidadComparison = (a.localidad || '').localeCompare(b.localidad || '');
+                                        if (localidadComparison === 0) {
+                                            return b.diferenciaTotal - a.diferenciaTotal;
+                                        }
+                                        return localidadComparison;
+                                    });
+
+                                    const subtotalesPorLocalidad = resultadosOrdenados.reduce((acc, curr) => {
+                                        const localidad = curr.localidad || 'No disponible';
+                                        if (!acc[localidad]) {
+                                            acc[localidad] = 0;
+                                        }
+                                        acc[localidad] += curr.diferenciaTotal;
+                                        return acc;
+                                    }, {});
+
+                                    let currentLocalidad = '';
+                                    const rows = [];
+
+                                    resultadosOrdenados.forEach((resultado, index) => {
+                                        const localidad = resultado.localidad || 'No disponible';
+                                        if (localidad !== currentLocalidad) {
+                                            if (currentLocalidad !== '') {
+                                                rows.push(
+                                                    <tr key={`subtotal-${currentLocalidad}`} style={{ backgroundColor: '#f0f0f0' }}>
+                                                        <td colSpan="7"><strong>Subtotal {currentLocalidad}</strong></td>
+                                                        <td><strong>${subtotalesPorLocalidad[currentLocalidad].toFixed(2)}</strong></td>
+                                                        <td></td>
+                                                    </tr>
+                                                );
+                                            }
+                                            currentLocalidad = localidad;
+                                        }
+
+                                        rows.push(
+                                            <tr key={index}>
+                                                <td>{resultado.cuit}</td>
+                                                <td>{resultado.razonSocial || 'No disponible'}</td>
+                                                <td>{resultado.calle || 'No disponible'}</td>
+                                                <td>{resultado.numero || 'No disponible'}</td>
+                                                <td>{resultado.localidad || 'No disponible'}</td>
+                                                <td>{resultado.ultimoNroActa || 'No disponible'}</td>
+                                                <td>{resultado.primerPeriodoAVerificar ? new Date(resultado.primerPeriodoAVerificar).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'No disponible'}</td>
+                                                <td>${resultado.diferenciaTotal.toFixed(2)}</td>
+                                                <td>
+                                                    <details>
+                                                        <summary>Ver detalle</summary>
+                                                        <table className="detalle-table">
+                                                            <thead>
+                                                                <tr>
+                                                                    <th>CUIL</th>
+                                                                    <th>Año</th>
+                                                                    <th>Diferencia</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {resultado.diferenciasDetalladas.map((detalle, idx) => (
+                                                                    <tr key={idx}>
+                                                                        <td>{detalle.cuil}</td>
+                                                                        <td>{detalle.anio}</td>
+                                                                        <td>${detalle.diferencia.toFixed(2)}</td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </details>
+                                                </td>
+                                            </tr>
+                                        );
+                                    });
+
+                                    rows.push(
+                                        <tr key={`subtotal-${currentLocalidad}`} style={{ backgroundColor: '#f0f0f0' }}>
+                                            <td colSpan="7"><strong>Subtotal {currentLocalidad}</strong></td>
+                                            <td><strong>${subtotalesPorLocalidad[currentLocalidad].toFixed(2)}</strong></td>
+                                            <td></td>
+                                        </tr>
+                                    );
+
+                                    rows.push(
+                                        <tr key="total-general" style={{ backgroundColor: '#e0e0e0' }}>
+                                            <td colSpan="7"><strong>TOTAL GENERAL</strong></td>
+                                            <td><strong>${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b, 0).toFixed(2)}</strong></td>
+                                            <td></td>
+                                        </tr>
+                                    );
+
+                                    return rows;
+                                })()} 
+                            </tbody>
+                        </table>
+                    </div>
             )}
         </div>
     );

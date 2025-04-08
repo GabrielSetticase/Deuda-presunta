@@ -345,6 +345,7 @@ app.post('/api/procesar', async (req, res) => {
         currentCUIT = '';
         processedCount = 0;
         const { actasPath, cuilesPath } = req.body;
+        const empresasPath = path.join(__dirname, '../uploads/4- EMPRESAS CORDOBA.accdb');
 
         if (!actasPath || !cuilesPath) {
             throw new Error('Faltan los nombres de los archivos');
@@ -391,7 +392,7 @@ app.post('/api/procesar', async (req, res) => {
             console.log('Enviando progreso:', { status, cuit, count });
             currentStatus = status;
             if (cuit) currentCUIT = cuit;
-            if (count !== undefined) processedCount = count;
+            if (count !== null) processedCount = count;
 
             io.emit('processingUpdate', {
                 status: currentStatus,
@@ -401,10 +402,17 @@ app.post('/api/procesar', async (req, res) => {
             });
         };
 
+        // Enviar estado inicial
         updateProgress('Iniciando procesamiento de archivos...');
-        console.log('Iniciando processODBFile con rutas:', { actasFullPath, cuilesFullPath });
 
-        const resultados = await processODBFile(cuilesFullPath, importes, actasFullPath, updateProgress);
+        console.log('Iniciando processODBFile con rutas:', {
+            actasFullPath,
+            cuilesFullPath
+        });
+
+        // Procesar los archivos pasando la función updateProgress
+        const empresasFullPath = path.join(__dirname, '../uploads/4- EMPRESAS CORDOBA.accdb');
+        const resultados = await processODBFile(cuilesFullPath, importes, actasFullPath, empresasFullPath, updateProgress);
         console.log('Procesamiento completado, resultados:', resultados);
 
         updateProgress('Procesamiento completado', null, null);
@@ -438,4 +446,4 @@ app.post('/api/procesar', async (req, res) => {
 const PORT = 3001;
 server.listen(PORT, () => {
     console.log(`Servidor corriendo en http://localhost:${PORT}`);
-}); 
+});

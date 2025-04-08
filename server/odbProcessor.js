@@ -2,6 +2,7 @@ import odbc from 'odbc';
 import path from 'path';
 import { getDatabase } from './database.js';
 import XLSX from 'xlsx';
+import { obtenerDatosEmpresas } from './empresasProcessor.js';
 
 // Función para obtener la fecha de hace 120 meses desde la fecha actual
 function getFechaInicio() {
@@ -51,7 +52,10 @@ async function obtenerUltimosPeriodos(actasPath) {
     }
 }
 
-export async function processODBFile(cuilesPath, importes, actasPath, updateProgress = () => { }) {
+export async function processODBFile(cuilesPath, importes, actasPath, empresasPath, updateProgress) {
+    if (typeof updateProgress !== 'function') {
+        updateProgress = () => {};
+    }
     try {
         console.log('Iniciando procesamiento...');
         updateProgress('Conectando a las bases de datos...');
@@ -253,9 +257,29 @@ export async function processODBFile(cuilesPath, importes, actasPath, updateProg
             })
             .filter(r => r.diferenciasDetalladas.length > 0 && r.diferenciaTotal > 0);
 
+        // Obtener los datos de las empresas para los CUITs con diferencias
+        const cuitsConDiferencias = resultadosFinales.map(r => r.cuit);
+        const datosEmpresas = await obtenerDatosEmpresas(empresasPath, cuitsConDiferencias);
+
+        // Integrar los datos de las empresas con los resultados
+        const resultadosConEmpresas = resultadosFinales.map(resultado => {
+            const datosEmpresa = datosEmpresas.get(resultado.cuit) || {
+                razonSocial: '',
+                calle: '',
+                numero: '',
+                localidad: '',
+                ultimoNroActa: ''
+            };
+
+            return {
+                ...resultado,
+                ...datosEmpresa
+            };
+        });
+
         console.log('Procesamiento completado');
         updateProgress(`Procesamiento completado. Total: ${procesados} registros procesados`);
-        return resultadosFinales;
+        return resultadosConEmpresas;
 
     } catch (error) {
         console.error('Error en processODBFile:', error);
@@ -278,14 +302,37 @@ function getFileType(filePath) {
     }
 }
 
+import fs from 'fs';
+
 async function getConnection(filePath, fileType) {
+    // Verificar si el archivo existe
+    if (!fs.existsSync(filePath)) {
+        throw new Error(`No se encontró el archivo de la base de datos en la ruta: ${filePath}`);
+    }
+
     if (fileType === 'access') {
         const connectionString = `Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=${filePath}`;
-        return await odbc.connect(connectionString);
+        try {
+            return await odbc.connect(connectionString);
+        } catch (error) {
+            if (error.odbcErrors) {
+                const odbcError = error.odbcErrors[0];
+                throw new Error(`Error de conexión a la base de datos Access: ${odbcError.message}`);
+            }
+            throw error;
+        }
     } else if (fileType === 'openoffice') {
         // Para bases de datos OpenOffice
         const connectionString = `Driver={LibreOffice Base Driver};DBQ=${filePath}`;
-        return await odbc.connect(connectionString);
+        try {
+            return await odbc.connect(connectionString);
+        } catch (error) {
+            if (error.odbcErrors) {
+                const odbcError = error.odbcErrors[0];
+                throw new Error(`Error de conexión a la base de datos OpenOffice: ${odbcError.message}`);
+            }
+            throw error;
+        }
     } else {
         throw new Error(`Tipo de conexión no soportado: ${fileType}`);
     }
