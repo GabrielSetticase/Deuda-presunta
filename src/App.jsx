@@ -50,6 +50,7 @@ function App() {
     const [processedCount, setProcessedCount] = useState(0);
     const [socket, setSocket] = useState(null);
     const [cuitEspecifico, setCuitEspecifico] = useState('');
+    const [showAllPeriods, setShowAllPeriods] = useState(false);
     const [files, setFiles] = useState({ actas: null, cuiles: null, empresas: null });
 
     useEffect(() => {
@@ -159,6 +160,17 @@ function App() {
             // Validar que los valores sean números válidos
             if (isNaN(anioNum) || isNaN(mesNum) || isNaN(remuneracionNum)) {
                 setMessage('Error: Los valores deben ser números válidos');
+                return;
+            }
+
+            // Validar rango de año y mes
+            const currentYear = new Date().getFullYear();
+            if (anioNum < 2000 || anioNum > currentYear + 10) {
+                setMessage(`Error: El año debe estar entre 2000 y ${currentYear + 10}`);
+                return;
+            }
+            if (mesNum < 1 || mesNum > 12) {
+                setMessage('Error: El mes debe estar entre 1 y 12');
                 return;
             }
 
@@ -446,6 +458,15 @@ function App() {
                     </div>
                 )}
 
+                <div className="toggle-view-container" style={{ marginBottom: '1rem' }}>
+                    <button
+                        className="toggle-view-button"
+                        onClick={() => setShowAllPeriods(!showAllPeriods)}
+                    >
+                        {showAllPeriods ? '▼ Mostrar últimos 3 meses' : '▶ Mostrar todos los períodos'}
+                    </button>
+                </div>
+
                 <table>
                     <thead>
                         <tr>
@@ -459,26 +480,32 @@ function App() {
                         </tr>
                     </thead>
                     <tbody>
-                        {importes.map((importe, index) => (
-                            <tr key={importe.id || index}>
-                                <td>{importe.anio}</td>
-                                <td>{importe.mes}</td>
-                                <td>${importe.remuneracion}</td>
-                                <td>${importe.aporte255}</td>
-                                <td>
-                                    <input
-                                        type="number"
-                                        className="ap-extraordinario-input"
-                                        value={importe.apExtraordinario}
-                                        onChange={(e) => handleUpdateApExtraordinario(importe.id, e.target.value)}
-                                    />
-                                </td>
-                                <td>${importe.aporteTotal}</td>
-                                <td>
-                                    <button onClick={() => handleDeleteImporte(importe.id)}>×</button>
-                                </td>
-                            </tr>
-                        ))}
+                        {importes
+                            .sort((a, b) => {
+                                if (a.anio !== b.anio) return b.anio - a.anio;
+                                return b.mes - a.mes;
+                            })
+                            .slice(0, showAllPeriods ? undefined : 3)
+                            .map((importe, index) => (
+                                <tr key={importe.id || index}>
+                                    <td>{importe.anio}</td>
+                                    <td>{importe.mes}</td>
+                                    <td>${importe.remuneracion}</td>
+                                    <td>${importe.aporte255}</td>
+                                    <td>
+                                        <input
+                                            type="number"
+                                            className="ap-extraordinario-input"
+                                            value={importe.apExtraordinario}
+                                            onChange={(e) => handleUpdateApExtraordinario(importe.id, e.target.value)}
+                                        />
+                                    </td>
+                                    <td>${importe.aporteTotal}</td>
+                                    <td>
+                                        <button onClick={() => handleDeleteImporte(importe.id)}>×</button>
+                                    </td>
+                                </tr>
+                            ))}
                     </tbody>
                 </table>
             </div>
@@ -539,84 +566,86 @@ function App() {
                 </div>
             </div>
 
-            {showModal && (
-                <div className="modal">
-                    <div className="modal-content">
-                        <h2>Agregar Nuevo Importe</h2>
-                        <div className="modal-input-group">
-                            <div className="input-wrapper">
-                                <label>Año:</label>
-                                <input
-                                    type="number"
-                                    value={nuevoImporte.anio}
-                                    onChange={(e) => setNuevoImporte({ ...nuevoImporte, anio: e.target.value })}
-                                    min="2000"
-                                    max="2100"
-                                    required
-                                />
-                            </div>
-                            <div className="input-wrapper">
-                                <label>Mes:</label>
-                                <input
-                                    type="number"
-                                    value={nuevoImporte.mes}
-                                    onChange={(e) => setNuevoImporte({ ...nuevoImporte, mes: e.target.value })}
-                                    min="1"
-                                    max="12"
-                                    required
-                                />
-                            </div>
-                            <div className="input-wrapper">
-                                <label>Remuneración:</label>
-                                <input
-                                    type="number"
-                                    value={nuevoImporte.remuneracion}
-                                    onChange={(e) => setNuevoImporte({ ...nuevoImporte, remuneracion: e.target.value })}
-                                    min="0"
-                                    step="0.01"
-                                    required
-                                />
-                            </div>
-                            <div className="input-wrapper">
-                                <label>Aporte Extraordinario:</label>
-                                <input
-                                    type="number"
-                                    value={nuevoImporte.apExtraordinario}
-                                    onChange={(e) => setNuevoImporte({ ...nuevoImporte, apExtraordinario: e.target.value })}
-                                    min="0"
-                                    step="0.01"
-                                    required
-                                />
-                            </div>
-                        </div>
-                        <div className="modal-preview">
-                            {nuevoImporte.remuneracion && (
-                                <>
-                                    <p>Aporte 2.55%: ${calcularAporte255(nuevoImporte.remuneracion)}</p>
-                                    <p>Aporte Total: ${calcularAporteTotal(nuevoImporte.remuneracion, nuevoImporte.apExtraordinario)}</p>
-                                </>
-                            )}
-                        </div>
-                        <div className="modal-buttons">
-                            <button onClick={() => {
-                                setShowModal(false);
-                                setNuevoImporte({
-                                    anio: '',
-                                    mes: '',
-                                    remuneracion: '',
-                                    apExtraordinario: '85'
-                                });
-                            }}>Cancelar</button>
-                            <button
-                                onClick={handleSaveImporte}
-                                disabled={!nuevoImporte.anio || !nuevoImporte.mes || !nuevoImporte.remuneracion}
-                            >
-                                Guardar
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <Dialog open={modalOpen} onClose={() => setModalOpen(false)}>
+                <DialogTitle>Agregar Nuevo Importe</DialogTitle>
+                <DialogContent>
+                    <Grid container spacing={2} sx={{ mt: 1 }}>
+                        <Grid item xs={6}>
+                            <TextField
+                                fullWidth
+                                label="Año"
+                                type="number"
+                                value={nuevoImporte.anio}
+                                onChange={(e) => setNuevoImporte({ ...nuevoImporte, anio: e.target.value })}
+                                inputProps={{ min: "2000", max: "2035" }}
+                                required
+                            />
+                        </Grid>
+                        <Grid item xs={6}>
+                            <TextField
+                                fullWidth
+                                label="Mes"
+                                type="number"
+                                value={nuevoImporte.mes}
+                                onChange={(e) => setNuevoImporte({ ...nuevoImporte, mes: e.target.value })}
+                                inputProps={{ min: "1", max: "12" }}
+                                required
+                            />
+                        </Grid>
+                        <Grid item xs={6}>
+                            <TextField
+                                fullWidth
+                                label="Remuneración"
+                                type="number"
+                                value={nuevoImporte.remuneracion}
+                                onChange={(e) => setNuevoImporte({ ...nuevoImporte, remuneracion: e.target.value })}
+                                inputProps={{ min: "0", step: "0.01" }}
+                                required
+                            />
+                        </Grid>
+                        <Grid item xs={6}>
+                            <TextField
+                                fullWidth
+                                label="Aporte Extraordinario"
+                                type="number"
+                                value={nuevoImporte.apExtraordinario}
+                                onChange={(e) => setNuevoImporte({ ...nuevoImporte, apExtraordinario: e.target.value })}
+                                inputProps={{ min: "0", step: "0.01" }}
+                                required
+                            />
+                        </Grid>
+                    </Grid>
+                    {nuevoImporte.remuneracion && (
+                        <Box sx={{ mt: 2 }}>
+                            <Typography>Aporte 2.55%: ${calcularAporte255(nuevoImporte.remuneracion)}</Typography>
+                            <Typography>Aporte Total: ${calcularAporteTotal(nuevoImporte.remuneracion, nuevoImporte.apExtraordinario)}</Typography>
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button 
+                        onClick={() => {
+                            setModalOpen(false);
+                            setNuevoImporte({
+                                anio: '',
+                                mes: '',
+                                remuneracion: '',
+                                apExtraordinario: '85'
+                            });
+                        }}
+                    >
+                        Cancelar
+                    </Button>
+                    <Button
+                        onClick={handleSaveImporte}
+                        disabled={!nuevoImporte.anio || !nuevoImporte.mes || !nuevoImporte.remuneracion}
+                        variant="contained"
+                        color="primary"
+                    >
+                        Guardar
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             {isProcessing && (
                 <div className="processing-status">
@@ -655,9 +684,13 @@ function App() {
                                 const subtotalesPorLocalidad = resultadosOrdenados.reduce((acc, curr) => {
                                     const localidad = curr.localidad || 'No disponible';
                                     if (!acc[localidad]) {
-                                        acc[localidad] = 0;
+                                        acc[localidad] = {
+                                            total: 0,
+                                            cantidad: 0
+                                        };
                                     }
-                                    acc[localidad] += curr.diferenciaTotal;
+                                    acc[localidad].total += curr.diferenciaTotal;
+                                    acc[localidad].cantidad += 1;
                                     return acc;
                                 }, {});
 
@@ -685,8 +718,18 @@ function App() {
                                                 if (localidad !== currentLocalidad) {
                                                     if (currentLocalidad !== '') {
                                                         subtotalRow = `<tr style="background-color: #f0f0f0;">
-                                                            <td colspan="7"><strong>Subtotal ${currentLocalidad}</strong></td>
-                                                            <td><strong>$${subtotalesPorLocalidad[currentLocalidad].toFixed(2)}</strong></td>
+                                                            <td colspan="7"><strong>Subtotal ${currentLocalidad} (${subtotalesPorLocalidad[currentLocalidad].cantidad} empresas)</strong></td>
+                                                            <td><strong>$${subtotalesPorLocalidad[currentLocalidad].total.toFixed(2)}</strong></td>
+                                                        </tr>
+                                                        <tr>
+                                                            <th>CUIT</th>
+                                                            <th>Razón Social</th>
+                                                            <th>Calle</th>
+                                                            <th>Número</th>
+                                                            <th>Localidad</th>
+                                                            <th>Último N° Acta</th>
+                                                            <th>Primer Período Verificado</th>
+                                                            <th>Deuda Total</th>
                                                         </tr>`;
                                                     }
                                                     currentLocalidad = localidad;
@@ -704,12 +747,12 @@ function App() {
                                                 </tr>`;
                                             }).join('')}
                                             <tr style="background-color: #f0f0f0;">
-                                                <td colspan="7"><strong>Subtotal ${currentLocalidad}</strong></td>
-                                                <td><strong>$${subtotalesPorLocalidad[currentLocalidad].toFixed(2)}</strong></td>
+                                                <td colspan="7"><strong>Subtotal ${currentLocalidad} (${subtotalesPorLocalidad[currentLocalidad].cantidad} empresas)</strong></td>
+                                                <td><strong>$${subtotalesPorLocalidad[currentLocalidad].total.toFixed(2)}</strong></td>
                                             </tr>
                                             <tr style="background-color: #e0e0e0;">
-                                                <td colspan="7"><strong>TOTAL GENERAL</strong></td>
-                                                <td><strong>$${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b, 0).toFixed(2)}</strong></td>
+                                                <td colspan="7"><strong>TOTAL GENERAL (${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.cantidad, 0)} empresas)</strong></td>
+                                                <td><strong>$${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.total, 0).toFixed(2)}</strong></td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -737,9 +780,13 @@ function App() {
                                 const subtotalesPorLocalidad = resultadosOrdenados.reduce((acc, curr) => {
                                     const localidad = curr.localidad || 'No disponible';
                                     if (!acc[localidad]) {
-                                        acc[localidad] = 0;
+                                        acc[localidad] = {
+                                            total: 0,
+                                            cantidad: 0
+                                        };
                                     }
-                                    acc[localidad] += curr.diferenciaTotal;
+                                    acc[localidad].total += curr.diferenciaTotal;
+                                    acc[localidad].cantidad += 1;
                                     return acc;
                                 }, {});
 
@@ -773,14 +820,14 @@ function App() {
 
                                 data.push({
                                     'CUIT': '',
-                                    'Razón Social': `Subtotal ${currentLocalidad}`,
-                                    'Deuda Total': subtotalesPorLocalidad[currentLocalidad].toFixed(2)
+                                    'Razón Social': `Subtotal ${currentLocalidad} (${subtotalesPorLocalidad[currentLocalidad].cantidad} empresas)`,
+                                    'Deuda Total': subtotalesPorLocalidad[currentLocalidad].total.toFixed(2)
                                 });
 
                                 data.push({
                                     'CUIT': '',
-                                    'Razón Social': 'TOTAL GENERAL',
-                                    'Deuda Total': Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b, 0).toFixed(2)
+                                    'Razón Social': `TOTAL GENERAL (${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.cantidad, 0)} empresas)`,
+                                    'Deuda Total': Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.total, 0).toFixed(2)
                                 });
 
                                 const wb = XLSX.utils.book_new();
@@ -818,9 +865,13 @@ function App() {
                                     const subtotalesPorLocalidad = resultadosOrdenados.reduce((acc, curr) => {
                                         const localidad = curr.localidad || 'No disponible';
                                         if (!acc[localidad]) {
-                                            acc[localidad] = 0;
+                                            acc[localidad] = {
+                                                total: 0,
+                                                cantidad: 0
+                                            };
                                         }
-                                        acc[localidad] += curr.diferenciaTotal;
+                                        acc[localidad].total += curr.diferenciaTotal;
+                                        acc[localidad].cantidad += 1;
                                         return acc;
                                     }, {});
 
@@ -881,16 +932,16 @@ function App() {
 
                                     rows.push(
                                         <tr key={`subtotal-${currentLocalidad}`} style={{ backgroundColor: '#f0f0f0' }}>
-                                            <td colSpan="7"><strong>Subtotal {currentLocalidad}</strong></td>
-                                            <td><strong>${subtotalesPorLocalidad[currentLocalidad].toFixed(2)}</strong></td>
+                                            <td colSpan="7"><strong>Subtotal {currentLocalidad} ({subtotalesPorLocalidad[currentLocalidad].cantidad} empresas)</strong></td>
+                                            <td><strong>${subtotalesPorLocalidad[currentLocalidad].total.toFixed(2)}</strong></td>
                                             <td></td>
                                         </tr>
                                     );
 
                                     rows.push(
                                         <tr key="total-general" style={{ backgroundColor: '#e0e0e0' }}>
-                                            <td colSpan="7"><strong>TOTAL GENERAL</strong></td>
-                                            <td><strong>${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b, 0).toFixed(2)}</strong></td>
+                                            <td colSpan="7"><strong>TOTAL GENERAL ({Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.cantidad, 0)} empresas)</strong></td>
+                                            <td><strong>${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.total, 0).toFixed(2)}</strong></td>
                                             <td></td>
                                         </tr>
                                     );
