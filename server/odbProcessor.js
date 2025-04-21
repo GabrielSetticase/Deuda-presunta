@@ -264,18 +264,34 @@ export async function processODBFile(cuilesPath, importes, actasPath, empresasPa
         // Integrar los datos de las empresas con los resultados
         const resultadosConEmpresas = resultadosFinales.map(resultado => {
             const datosEmpresa = datosEmpresas.get(resultado.cuit) || {
-                razonSocial: '',
-                calle: '',
-                numero: '',
-                localidad: '',
-                ultimoNroActa: ''
+                razonSocial: 'No disponible',
+                calle: 'No disponible',
+                numero: 'No disponible',
+                localidad: 'No disponible',
+                ultimoNroActa: 'No disponible'
             };
+
+            // Asegurar que todos los campos numéricos estén formateados correctamente
+            const diferenciasFormateadas = resultado.diferenciasDetalladas.map(diff => ({
+                ...diff,
+                diferencia: parseFloat(diff.diferencia.toFixed(2))
+            }));
 
             return {
                 ...resultado,
-                ...datosEmpresa
+                ...datosEmpresa,
+                diferenciasDetalladas: diferenciasFormateadas,
+                diferenciaTotal: parseFloat(resultado.diferenciaTotal.toFixed(2))
             };
         });
+
+        // Verificar que hay resultados para enviar
+        if (resultadosConEmpresas.length === 0) {
+            console.log('No se encontraron diferencias para reportar');
+            return [];
+        }
+
+        console.log('Resultados procesados:', resultadosConEmpresas);
 
         console.log('Procesamiento completado');
         updateProgress(`Procesamiento completado. Total: ${procesados} registros procesados`);

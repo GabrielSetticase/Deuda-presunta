@@ -382,10 +382,17 @@ function App() {
             console.log('Resultados recibidos:', response.data);
 
             if (Array.isArray(response.data) && response.data.length > 0) {
-                setResultados(response.data);
-                let totalDeuda = response.data.reduce((sum, r) => sum + r.diferenciaTotal, 0);
-                setMessage(`Procesamiento completado. Se encontraron diferencias en ${response.data.length} CUITs. Deuda total: $${totalDeuda.toFixed(2)}`);
+                // Asegurarse de que los valores numéricos sean números
+                const resultadosFormateados = response.data.map(r => ({
+                    ...r,
+                    diferenciaTotal: parseFloat(r.diferenciaTotal) || 0
+                }));
+                
+                setResultados(resultadosFormateados);
+                let totalDeuda = resultadosFormateados.reduce((sum, r) => sum + r.diferenciaTotal, 0);
+                setMessage(`Procesamiento completado. Se encontraron diferencias en ${resultadosFormateados.length} CUITs. Deuda total: $${totalDeuda.toFixed(2)}`);
             } else {
+                setResultados([]);
                 setMessage('El procesamiento finalizó pero no se encontraron diferencias.');
             }
 
@@ -689,7 +696,7 @@ function App() {
                                             cantidad: 0
                                         };
                                     }
-                                    acc[localidad].total += curr.diferenciaTotal;
+                                    acc[localidad].total += parseFloat(curr.diferenciaTotal) || 0;
                                     acc[localidad].cantidad += 1;
                                     return acc;
                                 }, {});
@@ -769,71 +776,117 @@ function App() {
                                 🖨️ Imprimir Resultados
                             </button>
                             <button className="action-button export-button" onClick={() => {
-                                const resultadosOrdenados = [...resultados].sort((a, b) => {
-                                    const localidadComparison = (a.localidad || '').localeCompare(b.localidad || '');
-                                    if (localidadComparison === 0) {
-                                        return b.diferenciaTotal - a.diferenciaTotal;
-                                    }
-                                    return localidadComparison;
-                                });
+                                try {
+                                    setIsLoading(true);
+                                    const resultadosOrdenados = [...resultados].sort((a, b) => {
+                                        const localidadComparison = (a.localidad || '').localeCompare(b.localidad || '');
+                                        return localidadComparison || b.diferenciaTotal - a.diferenciaTotal;
+                                    });
 
-                                const subtotalesPorLocalidad = resultadosOrdenados.reduce((acc, curr) => {
-                                    const localidad = curr.localidad || 'No disponible';
-                                    if (!acc[localidad]) {
-                                        acc[localidad] = {
-                                            total: 0,
-                                            cantidad: 0
-                                        };
-                                    }
-                                    acc[localidad].total += curr.diferenciaTotal;
-                                    acc[localidad].cantidad += 1;
-                                    return acc;
-                                }, {});
+                                    const subtotalesPorLocalidad = {};
+                                    const data = [];
+                                    let currentLocalidad = '';
+                                    let totalGeneral = 0;
+                                    let empresasTotal = 0;
 
-                                const data = [];
-                                let currentLocalidad = '';
+                                    // Procesar los datos en lotes para evitar bloquear el navegador
+                                    const procesarLote = (inicio, fin) => {
+                                        for (let i = inicio; i < fin && i < resultadosOrdenados.length; i++) {
+                                            const resultado = resultadosOrdenados[i];
+                                            const localidad = resultado.localidad || 'No disponible';
 
-                                resultadosOrdenados.forEach(resultado => {
-                                    const localidad = resultado.localidad || 'No disponible';
-                                    if (localidad !== currentLocalidad) {
-                                        if (currentLocalidad !== '') {
+                                            // Inicializar subtotales si es necesario
+                                            if (!subtotalesPorLocalidad[localidad]) {
+                                                subtotalesPorLocalidad[localidad] = {
+                                                    total: 0,
+                                                    cantidad: 0
+                                                };
+                                            }
+
+                                            // Actualizar subtotales
+                                            const deudaTotal = parseFloat(resultado.diferenciaTotal) || 0;
+                                            subtotalesPorLocalidad[localidad].total += deudaTotal;
+                                            subtotalesPorLocalidad[localidad].cantidad += 1;
+                                            totalGeneral += deudaTotal;
+                                            empresasTotal += 1;
+
+                                            // Agregar encabezados si cambia la localidad
+                                            if (localidad !== currentLocalidad) {
+                                                if (currentLocalidad !== '') {
+                                                    // Agregar subtotal de la localidad anterior
+                                                    data.push({
+                                                        'CUIT': '',
+                                                        'Razón Social': `Subtotal ${currentLocalidad}`,
+                                                        'Cantidad de Empresas': subtotalesPorLocalidad[currentLocalidad].cantidad,
+                                                        'Deuda Total': subtotalesPorLocalidad[currentLocalidad].total.toFixed(2)
+                                                    });
+                                                    // Agregar fila en blanco y encabezados para la nueva localidad
+                                                    data.push({});
+                                                }
+                                                data.push({
+                                                    'CUIT': 'CUIT',
+                                                    'Razón Social': 'Razón Social',
+                                                    'Calle': 'Calle',
+                                                    'Número': 'Número',
+                                                    'Localidad': 'Localidad',
+                                                    'Último N° Acta': 'Último N° Acta',
+                                                    'Primer Período Verificado': 'Primer Período Verificado',
+                                                    'Deuda Total': 'Deuda Total'
+                                                });
+                                                currentLocalidad = localidad;
+                                            }
+
+                                            // Agregar datos de la empresa
                                             data.push({
-                                                'CUIT': '',
-                                                'Razón Social': `Subtotal ${currentLocalidad}`,
-                                                'Deuda Total': subtotalesPorLocalidad[currentLocalidad].toFixed(2)
+                                                'CUIT': resultado.cuit,
+                                                'Razón Social': resultado.razonSocial || 'No disponible',
+                                                'Calle': resultado.calle || 'No disponible',
+                                                'Número': resultado.numero || 'No disponible',
+                                                'Localidad': resultado.localidad || 'No disponible',
+                                                'Último N° Acta': resultado.ultimoNroActa || 'No disponible',
+                                                'Primer Período Verificado': resultado.primerPeriodoAVerificar ? 
+                                                    new Date(resultado.primerPeriodoAVerificar).toLocaleDateString('es-AR') : 'No disponible',
+                                                'Deuda Total': deudaTotal.toFixed(2)
                                             });
                                         }
-                                        currentLocalidad = localidad;
+                                    };
+
+                                    // Procesar todos los datos en lotes de 100
+                                    const tamañoLote = 100;
+                                    for (let i = 0; i < resultadosOrdenados.length; i += tamañoLote) {
+                                        procesarLote(i, i + tamañoLote);
                                     }
 
+                                    // Agregar último subtotal y total general
+                                    if (currentLocalidad) {
+                                        data.push({
+                                            'CUIT': '',
+                                            'Razón Social': `Subtotal ${currentLocalidad}`,
+                                            'Cantidad de Empresas': subtotalesPorLocalidad[currentLocalidad].cantidad,
+                                            'Deuda Total': subtotalesPorLocalidad[currentLocalidad].total.toFixed(2)
+                                        });
+                                    }
+
+                                    data.push({});
                                     data.push({
-                                        'CUIT': resultado.cuit,
-                                        'Razón Social': resultado.razonSocial || 'No disponible',
-                                        'Calle': resultado.calle || 'No disponible',
-                                        'Número': resultado.numero || 'No disponible',
-                                        'Localidad': resultado.localidad || 'No disponible',
-                                        'Último N° Acta': resultado.ultimoNroActa || 'No disponible',
-                                        'Primer Período Verificado': resultado.primerPeriodoAVerificar ? new Date(resultado.primerPeriodoAVerificar).toLocaleDateString('es-AR') : 'No disponible',
-                                        'Deuda Total': resultado.diferenciaTotal.toFixed(2)
+                                        'CUIT': '',
+                                        'Razón Social': 'TOTAL GENERAL',
+                                        'Cantidad de Empresas': empresasTotal,
+                                        'Deuda Total': totalGeneral.toFixed(2)
                                     });
-                                });
 
-                                data.push({
-                                    'CUIT': '',
-                                    'Razón Social': `Subtotal ${currentLocalidad} (${subtotalesPorLocalidad[currentLocalidad].cantidad} empresas)`,
-                                    'Deuda Total': subtotalesPorLocalidad[currentLocalidad].total.toFixed(2)
-                                });
-
-                                data.push({
-                                    'CUIT': '',
-                                    'Razón Social': `TOTAL GENERAL (${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.cantidad, 0)} empresas)`,
-                                    'Deuda Total': Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.total, 0).toFixed(2)
-                                });
-
-                                const wb = XLSX.utils.book_new();
-                                const ws = XLSX.utils.json_to_sheet(data);
-                                XLSX.utils.book_append_sheet(wb, ws, 'Resultados');
-                                XLSX.writeFile(wb, 'deuda_presunta_resultados.xlsx');
+                                    // Crear y descargar el archivo Excel
+                                    const wb = XLSX.utils.book_new();
+                                    const ws = XLSX.utils.json_to_sheet(data, {skipHeader: true});
+                                    XLSX.utils.book_append_sheet(wb, ws, 'Resultados');
+                                    XLSX.writeFile(wb, 'deuda_presunta_resultados.xlsx');
+                                    setMessage('Archivo Excel generado exitosamente');
+                                } catch (error) {
+                                    console.error('Error al exportar a Excel:', error);
+                                    setMessage('Error al generar el archivo Excel: ' + error.message);
+                                } finally {
+                                    setIsLoading(false);
+                                }
                             }}>
                                 📊 Exportar a Excel
                             </button>
@@ -885,7 +938,7 @@ function App() {
                                                 rows.push(
                                                     <tr key={`subtotal-${currentLocalidad}`} style={{ backgroundColor: '#f0f0f0' }}>
                                                         <td colSpan="7"><strong>Subtotal {currentLocalidad}</strong></td>
-                                                        <td><strong>${subtotalesPorLocalidad[currentLocalidad].toFixed(2)}</strong></td>
+                                                        <td><strong>${subtotalesPorLocalidad[currentLocalidad].total.toFixed(2)}</strong></td>
                                                         <td></td>
                                                     </tr>
                                                 );

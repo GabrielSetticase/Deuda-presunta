@@ -345,7 +345,25 @@ app.post('/api/procesar', async (req, res) => {
         currentCUIT = '';
         processedCount = 0;
         const { actasPath, cuilesPath } = req.body;
-        const empresasPath = path.join(__dirname, '../uploads/4- EMPRESAS CORDOBA.accdb');
+        // Buscar archivo de empresas con extensión .mdb o .accdb
+        let empresasPath;
+        const empresasAccdb = path.join(__dirname, '../uploads/4- EMPRESAS CORDOBA.accdb');
+        const empresasMdb = path.join(__dirname, '../uploads/4- EMPRESAS CORDOBA.mdb');
+        
+        try {
+            const accdbExists = await fs.access(empresasAccdb).then(() => true).catch(() => false);
+            const mdbExists = await fs.access(empresasMdb).then(() => true).catch(() => false);
+            
+            if (accdbExists) {
+                empresasPath = empresasAccdb;
+            } else if (mdbExists) {
+                empresasPath = empresasMdb;
+            } else {
+                throw new Error('No se encuentra el archivo de empresas (.mdb o .accdb)');
+            }
+        } catch (error) {
+            throw new Error('Error al acceder al archivo de empresas: ' + error.message);
+        }
 
         if (!actasPath || !cuilesPath) {
             throw new Error('Faltan los nombres de los archivos');
@@ -411,8 +429,7 @@ app.post('/api/procesar', async (req, res) => {
         });
 
         // Procesar los archivos pasando la función updateProgress
-        const empresasFullPath = path.join(__dirname, '../uploads/4- EMPRESAS CORDOBA.accdb');
-        const resultados = await processODBFile(cuilesFullPath, importes, actasFullPath, empresasFullPath, updateProgress);
+        const resultados = await processODBFile(cuilesFullPath, importes, actasFullPath, empresasPath, updateProgress);
         console.log('Procesamiento completado, resultados:', resultados);
 
         updateProgress('Procesamiento completado', null, null);

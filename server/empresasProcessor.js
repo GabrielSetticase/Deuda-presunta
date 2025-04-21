@@ -1,11 +1,13 @@
 import odbc from 'odbc';
-import fs from 'fs';
+import fs from 'fs/promises';
 
 export async function obtenerDatosEmpresas(empresasPath, cuits) {
     try {
         // Verificar si el archivo existe y tiene una extensión válida
         console.log('Intentando acceder al archivo:', empresasPath);
-        if (!fs.existsSync(empresasPath)) {
+        try {
+            await fs.access(empresasPath);
+        } catch (error) {
             throw new Error(`No se encontró el archivo de la base de datos en la ruta: ${empresasPath}`);
         }
         const fileExtension = empresasPath.toLowerCase().split('.').pop();
@@ -47,6 +49,10 @@ export async function obtenerDatosEmpresas(empresasPath, cuits) {
         }
 
         // Crear la consulta con los CUITs proporcionados, tratándolos como texto
+        if (!cuits || cuits.length === 0) {
+            console.log('No se proporcionaron CUITs para la consulta');
+            return new Map();
+        }
         const cuitsString = cuits.map(cuit => String(cuit).replace(/\D/g, '')).join(',');
         const query = `
             SELECT CUIT, RAZONSOCIAL, CALLE, NUMERO, LOCALIDAD, ULTIMO_NRO_ACTA
