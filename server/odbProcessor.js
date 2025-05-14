@@ -183,8 +183,7 @@ export async function processODBFile(cuilesPath, importes, actasPath, empresasPa
                 if (tieneRemuneracion && tieneAporte) {
                     console.log(`Procesando ${mes}/${anio} - Remuneración encontrada: ${row[remuneracionColumn]}`);
                     const aporte = parseFloat(row[aporteColumn] || 0);
-                    const aporteAdic = parseFloat(row[aporteAdicColumn] || 0);
-                    const aporteTotal = aporte + aporteAdic;
+                    const aporteTotal = aporte; // Solo consideramos el aporte base, sin sumar APORTE_ADIC_OS
                     const remuneracion = parseFloat(row[remuneracionColumn]);
 
                     const importeRef = importes.find(imp =>
@@ -197,7 +196,7 @@ export async function processODBFile(cuilesPath, importes, actasPath, empresasPa
 
                         console.log(`\nAnalizando - CUIT: ${cuit}, CUIL: ${cuil}, Período: ${mes}/${anio}`);
                         console.log(`Remuneración informada: ${remuneracion.toFixed(2)}`);
-                        console.log(`Aporte Total: ${aporteTotal.toFixed(2)} (Aporte: ${aporte.toFixed(2)}, Adic: ${aporteAdic.toFixed(2)})`);
+                        console.log(`Aporte Total: ${aporteTotal.toFixed(2)} (Aporte: ${aporte.toFixed(2)})`);
                         console.log(`Importe Referencia: ${importeReferencia.toFixed(2)} (Base: ${importeRef.remuneracion}, Extra: ${importeRef.apExtraordinario})`);
 
                         if (aporteTotal < importeReferencia) {

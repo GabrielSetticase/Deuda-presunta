@@ -875,11 +875,46 @@ function App() {
                                         'Deuda Total': totalGeneral.toFixed(2)
                                     });
 
-                                    // Crear y descargar el archivo Excel
-                                    const wb = XLSX.utils.book_new();
-                                    const ws = XLSX.utils.json_to_sheet(data, {skipHeader: true});
-                                    XLSX.utils.book_append_sheet(wb, ws, 'Resultados');
-                                    XLSX.writeFile(wb, 'deuda_presunta_resultados.xlsx');
+                                    // Crear y descargar el archivo Excel de manera asíncrona
+                                    setMessage('Generando archivo Excel...');
+                                    await new Promise(resolve => setTimeout(resolve, 0)); // Permitir que la UI se actualice
+
+                                    // Dividir el proceso en tareas más pequeñas
+                                    const generarExcel = async () => {
+                                        const wb = XLSX.utils.book_new();
+                                        const ws = XLSX.utils.json_to_sheet([], {skipHeader: true});
+                                        
+                                        // Agregar datos en lotes más pequeños
+                                        const tamañoLoteExcel = 50;
+                                        for (let i = 0; i < data.length; i += tamañoLoteExcel) {
+                                            const lote = data.slice(i, i + tamañoLoteExcel);
+                                            if (i === 0) {
+                                                XLSX.utils.sheet_add_json(ws, lote, {skipHeader: true, origin: 0});
+                                            } else {
+                                                XLSX.utils.sheet_add_json(ws, lote, {skipHeader: true, origin: -1});
+                                            }
+                                            // Permitir que el navegador respire entre lotes
+                                            await new Promise(resolve => setTimeout(resolve, 10));
+                                        }
+
+                                        XLSX.utils.book_append_sheet(wb, ws, 'Resultados');
+                                        
+                                        // Generar el archivo en un blob para mejor manejo de memoria
+                                        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                                        const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                                        
+                                        // Descargar usando URL.createObjectURL
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = 'deuda_presunta_resultados.xlsx';
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        document.body.removeChild(a);
+                                        URL.revokeObjectURL(url);
+                                    };
+
+                                    await generarExcel();
                                     setMessage('Archivo Excel generado exitosamente');
                                 } catch (error) {
                                     console.error('Error al exportar a Excel:', error);
