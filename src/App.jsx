@@ -431,20 +431,55 @@ function App() {
                             type="file"
                             id="file-upload"
                             accept=".odb,.mdb,.accdb,.xlsx,.xls"
-                            onChange={async (e) => {
-                                const file = e.target.files[0];
-                                if (file) {
-                                    setMessage('Importando archivo de sueldos...');
-                                    const formData = new FormData();
-                                    formData.append('file', file);
-                                    try {
-                                        const response = await axios.post('http://localhost:3001/api/importar-sueldos', formData);
-                                        setMessage(`Importación exitosa: ${response.data.registrosProcesados} registros procesados`);
-                                        await cargarImportes();
-                                    } catch (error) {
-                                        console.error('Error importando sueldos:', error);
-                                        setMessage('Error al importar archivo: ' + (error.response?.data?.error || error.message));
-                                    }
+                            onClick={async () => {
+                                try {
+                                    setIsLoading(true);
+                                    let empresasTotal = 0;
+                                    let totalGeneral = 0;
+
+                                    const data = resultados.map(r => {
+                                        empresasTotal++;
+                                        totalGeneral += parseFloat(r.diferenciaTotal);
+                                        return {
+                                            'CUIT': r.cuit,
+                                            'Razón Social': r.razonSocial || 'No disponible',
+                                            'Deuda Total': r.diferenciaTotal.toFixed(2)
+                                        };
+                                    });
+
+                                    data.push({
+                                        'CUIT': '',
+                                        'Razón Social': 'TOTAL GENERAL',
+                                        'Cantidad de Empresas': empresasTotal,
+                                        'Deuda Total': totalGeneral.toFixed(2)
+                                    });
+
+                                    setMessage('Generando archivo Excel...');
+                                    await new Promise(resolve => setTimeout(resolve, 0));
+
+                                    const generarExcel = async () => {
+                                        const wb = XLSX.utils.book_new();
+                                        const ws = XLSX.utils.json_to_sheet(data);
+                                        XLSX.utils.book_append_sheet(wb, ws, 'Deuda Presunta');
+                                        const buffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+                                        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = 'deuda_presunta_resultados.xlsx';
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        document.body.removeChild(a);
+                                        URL.revokeObjectURL(url);
+                                    };
+
+                                    await generarExcel();
+                                    setMessage('Archivo Excel generado exitosamente');
+                                } catch (error) {
+                                    console.error('Error al exportar a Excel:', error);
+                                    setMessage('Error al generar el archivo Excel: ' + error.message);
+                                } finally {
+                                    setIsLoading(false);
                                 }
                             }}
                             style={{ display: 'none' }}
@@ -679,7 +714,7 @@ function App() {
                     <div className="resultados-actions">
                         <button
                             className="action-button print-button"
-                            onClick={() => {
+                            onClick={async () => {
                                 const resultadosOrdenados = [...resultados].sort((a, b) => {
                                     const localidadComparison = (a.localidad || '').localeCompare(b.localidad || '');
                                     if (localidadComparison === 0) {
@@ -775,7 +810,7 @@ function App() {
                             }}>
                                 🖨️ Imprimir Resultados
                             </button>
-                            <button className="action-button export-button" onClick={() => {
+                            <button className="action-button export-button" onClick={async () => {
                                 try {
                                     setIsLoading(true);
                                     const resultadosOrdenados = [...resultados].sort((a, b) => {
@@ -1028,7 +1063,7 @@ function App() {
 
                                     rows.push(
                                         <tr key="total-general" style={{ backgroundColor: '#e0e0e0' }}>
-                                            <td colSpan="7"><strong>TOTAL GENERAL ({Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.cantidad, 0)} empresas)</strong></td>
+                                            <td colSpan="7"><strong>TOTAL GENERAL (${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.cantidad, 0)} empresas)</strong></td>
                                             <td><strong>${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.total, 0).toFixed(2)}</strong></td>
                                             <td></td>
                                         </tr>
