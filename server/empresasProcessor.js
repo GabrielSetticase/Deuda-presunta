@@ -55,7 +55,7 @@ export async function obtenerDatosEmpresas(empresasPath, cuits) {
         }
         const cuitsString = cuits.map(cuit => String(cuit).replace(/\D/g, '')).join(',');
         const query = `
-            SELECT CUIT, RAZONSOCIAL, CALLE, NUMERO, LOCALIDAD, ULTIMO_NRO_ACTA
+            SELECT CUIT, RAZONSOCIAL, CALLE, NUMERO, LOCALIDAD, ULTIMO_NRO_ACTA, SITUACION
             FROM ${tableName}
             WHERE CUIT IN (${cuitsString})
         `;
@@ -85,7 +85,8 @@ export async function obtenerDatosEmpresas(empresasPath, cuits) {
                     calle: procesarValor(row.CALLE),
                     numero: procesarValor(row.NUMERO),
                     localidad: procesarValor(row.LOCALIDAD),
-                    ultimoNroActa: procesarValor(row.ULTIMO_NRO_ACTA)
+                    ultimoNroActa: procesarValor(row.ULTIMO_NRO_ACTA),
+                    situacion: procesarValor(row.SITUACION)
                 };
                 
                 // Agregar los datos al Map
