@@ -51,7 +51,7 @@ function App() {
     const [socket, setSocket] = useState(null);
     const [cuitEspecifico, setCuitEspecifico] = useState('');
     const [showAllPeriods, setShowAllPeriods] = useState(false);
-    const [files, setFiles] = useState({ actas: null, cuiles: null, empresas: null });
+    const [files, setFiles] = useState({ actas: null, cuiles: null, empresas: null, cuentaCorriente: null });
 
     useEffect(() => {
         cargarImportes();
@@ -594,6 +594,19 @@ function App() {
                         <span className="file-name">{files.empresas ? files.empresas.name : 'Ningún archivo seleccionado'}</span>
                     </div>
 
+                    <div className="file-input-container">
+                        <label className="file-input-label">
+                            <input
+                                type="file"
+                                accept=".mdb,.accdb"
+                                onChange={(e) => handleFileChange(e, 'cuentaCorriente')}
+                                className="file-input"
+                            />
+                            Seleccionar CUENTA CORRIENTE
+                        </label>
+                        <span className="file-name">{files.cuentaCorriente ? files.cuentaCorriente.name : 'Ningún archivo seleccionado'}</span>
+                    </div>
+
                     <button
                         className="process-button"
                         onClick={handleProcesar}
@@ -973,6 +986,7 @@ function App() {
                                     <th>Primer Período Verificado</th>
                                     <th>Deuda Total</th>
                                     <th>SITUACION</th>
+                                    <th>Ultima DJ</th>
                                     <th>Detalle</th>
                                 </tr>
                             </thead>
@@ -1028,6 +1042,7 @@ function App() {
                                                 <td>{resultado.primerPeriodoAVerificar ? new Date(resultado.primerPeriodoAVerificar).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'No disponible'}</td>
                                                 <td>${resultado.diferenciaTotal.toFixed(2)}</td>
                                                 <td>{resultado.situacion || 'No disponible'}</td>
+                                                <td>{resultado.ultimaDJ || 'No disponible'}</td>
                                                 <td>
                                                     <details>
                                                         <summary>Ver detalle</summary>
@@ -1065,7 +1080,7 @@ function App() {
 
                                     rows.push(
                                         <tr key="total-general" style={{ backgroundColor: '#e0e0e0' }}>
-                                            <td colSpan="8"><strong>TOTAL GENERAL (${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.cantidad, 0)} empresas)</strong></td>
+                                            <td colSpan="8"><strong>TOTAL GENERAL ({Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.cantidad, 0)} empresas)</strong></td>
                                             <td><strong>${Object.values(subtotalesPorLocalidad).reduce((a, b) => a + b.total, 0).toFixed(2)}</strong></td>
                                             <td></td>
                                         </tr>

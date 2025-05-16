@@ -4,6 +4,51 @@ import { getDatabase } from './database.js';
 import XLSX from 'xlsx';
 import { obtenerDatosEmpresas } from './empresasProcessor.js';
 
+async function obtenerUltimaDJ(connection, tableName, cuit) {
+    try {
+        const meses = [
+            'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+            'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
+        ];
+
+        // Consulta para obtener todos los registros del CUIT con CAST para asegurar compatibilidad de tipos
+        const query = `
+            SELECT ANIO, ${meses.map(mes => `REMUNERACION_${mes}`).join(', ')}
+            FROM ${tableName}
+            WHERE CUIT = CStr('${cuit}')
+            ORDER BY ANIO DESC, REMUNERACION_DICIEMBRE DESC`;
+
+        const rows = await connection.query(query);
+        
+        // Buscar la última remuneración mayor a cero
+        let ultimoAnio = null;
+        let ultimoMes = null;
+
+        for (const row of rows) {
+            const anio = parseInt(row.ANIO);
+            for (let i = meses.length - 1; i >= 0; i--) {
+                const mes = meses[i];
+                const remuneracion = parseFloat(row[`REMUNERACION_${mes}`] || 0);
+                if (remuneracion > 0) {
+                    if (ultimoAnio === null || anio > ultimoAnio || (anio === ultimoAnio && i > ultimoMes)) {
+                        ultimoAnio = anio;
+                        ultimoMes = i;
+                    }
+                }
+            }
+        }
+
+        if (ultimoAnio !== null && ultimoMes !== null) {
+            // Retornar en formato MM/AAAA
+            return `${String(ultimoMes + 1).padStart(2, '0')}/${ultimoAnio}`;
+        }
+        return 'No disponible';
+    } catch (error) {
+        console.error('Error al obtener última DJ:', error);
+        return 'No disponible';
+    }
+}
+
 // Función para obtener la fecha de hace 120 meses desde la fecha actual
 function getFechaInicio() {
     const fechaActual = new Date();
@@ -15,10 +60,11 @@ function getFechaInicio() {
 }
 
 async function obtenerUltimosPeriodos(actasPath) {
+    let connection;
     try {
         console.log('Conectando a base de datos de actas...');
         const connectionString = `Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=${actasPath}`;
-        const connection = await odbc.connect(connectionString);
+        connection = await odbc.connect(connectionString);
 
         // Consulta para obtener el último período por CUIT desde la tabla correcta
         const query = `
@@ -49,6 +95,15 @@ async function obtenerUltimosPeriodos(actasPath) {
     } catch (error) {
         console.error('Error obteniendo últimos períodos:', error);
         throw error;
+    } finally {
+        // Cerrar la conexión en el bloque finally para asegurar que siempre se cierre
+        if (connection) {
+            try {
+                await connection.close();
+            } catch (err) {
+                console.error('Error al cerrar la conexión:', err);
+            }
+        }
     }
 }
 
@@ -56,6 +111,7 @@ export async function processODBFile(cuilesPath, importes, actasPath, empresasPa
     if (typeof updateProgress !== 'function') {
         updateProgress = () => {};
     }
+    let connection;
     try {
         console.log('Iniciando procesamiento...');
         updateProgress('Conectando a las bases de datos...');
@@ -71,7 +127,7 @@ export async function processODBFile(cuilesPath, importes, actasPath, empresasPa
         // Conectar a la base de datos de CUILES
         console.log('Conectando a la base de datos de CUILES...');
         const connectionString = `Driver={Microsoft Access Driver (*.mdb, *.accdb)};DBQ=${cuilesPath}`;
-        const connection = await odbc.connect(connectionString);
+        connection = await odbc.connect(connectionString);
 
         // Intentar diferentes nombres de tabla posibles para los aportes
         const posiblesTablasVistas = [
@@ -227,8 +283,6 @@ export async function processODBFile(cuilesPath, importes, actasPath, empresasPa
             }
         }
 
-        await connection.close();
-
         // Limpiar y convertir resultados
         const resultadosFinales = Array.from(resultados.values())
             .map(registro => {
@@ -260,8 +314,9 @@ export async function processODBFile(cuilesPath, importes, actasPath, empresasPa
         const cuitsConDiferencias = resultadosFinales.map(r => r.cuit);
         const datosEmpresas = await obtenerDatosEmpresas(empresasPath, cuitsConDiferencias);
 
-        // Integrar los datos de las empresas con los resultados
-        const resultadosConEmpresas = resultadosFinales.map(resultado => {
+        // Obtener la última DJ para cada CUIT y luego integrar los datos de las empresas
+        const resultadosConEmpresas = [];
+        for (const resultado of resultadosFinales) {
             const datosEmpresa = datosEmpresas.get(resultado.cuit) || {
                 razonSocial: 'No disponible',
                 calle: 'No disponible',
@@ -270,19 +325,29 @@ export async function processODBFile(cuilesPath, importes, actasPath, empresasPa
                 ultimoNroActa: 'No disponible'
             };
 
+            // Obtener la última DJ para este CUIT
+            let ultimaDJ = 'No disponible';
+            try {
+                ultimaDJ = await obtenerUltimaDJ(connection, tableName, resultado.cuit);
+            } catch (error) {
+                console.error(`Error al obtener última DJ para CUIT ${resultado.cuit}:`, error);
+            }
+
             // Asegurar que todos los campos numéricos estén formateados correctamente
             const diferenciasFormateadas = resultado.diferenciasDetalladas.map(diff => ({
                 ...diff,
                 diferencia: parseFloat(diff.diferencia.toFixed(2))
             }));
 
-            return {
+            resultadosConEmpresas.push({
                 ...resultado,
                 ...datosEmpresa,
                 diferenciasDetalladas: diferenciasFormateadas,
-                diferenciaTotal: parseFloat(resultado.diferenciaTotal.toFixed(2))
-            };
-        });
+                diferenciaTotal: parseFloat(resultado.diferenciaTotal.toFixed(2)),
+                ultimaDJ: ultimaDJ
+            });
+        }
+
 
         // Verificar que hay resultados para enviar
         if (resultadosConEmpresas.length === 0) {
@@ -300,6 +365,15 @@ export async function processODBFile(cuilesPath, importes, actasPath, empresasPa
         console.error('Error en processODBFile:', error);
         updateProgress(`Error: ${error.message}`);
         throw error;
+    } finally {
+        // Cerrar la conexión en el bloque finally para asegurar que siempre se cierre
+        if (connection) {
+            try {
+                await connection.close();
+            } catch (err) {
+                console.error('Error al cerrar la conexión:', err);
+            }
+        }
     }
 }
 
@@ -401,5 +475,14 @@ export async function processSueldosODB(filePath) {
     } catch (error) {
         console.error('Error en processSueldosODB:', error);
         throw error;
+    } finally {
+        // Cerrar la conexión en el bloque finally para asegurar que siempre se cierre
+        if (connection) {
+            try {
+                await connection.close();
+            } catch (err) {
+                console.error('Error al cerrar la conexión:', err);
+            }
+        }
     }
 }

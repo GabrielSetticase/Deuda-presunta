@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import cors from 'cors';
 import { processODBFile, processSueldosODB } from './odbProcessor.js';
+import { obtenerDatosCuentaCorriente } from './cuentaCorrienteProcessor.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
@@ -77,6 +78,21 @@ app.use(cors({
 app.options('*', cors());
 
 app.use(express.json());
+
+// Ruta para obtener datos de cuenta corriente
+app.post('/api/cuenta-corriente', async (req, res) => {
+    try {
+        const { dbPath, cuits } = req.body;
+        if (!dbPath || !cuits) {
+            return res.status(400).json({ error: 'Se requiere la ruta de la base de datos y los CUITs' });
+        }
+        const datosCuentaCorriente = await obtenerDatosCuentaCorriente(dbPath, cuits);
+        res.json(Object.fromEntries(datosCuentaCorriente));
+    } catch (error) {
+        console.error('Error al obtener datos de cuenta corriente:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Inicializar la base de datos
 try {
